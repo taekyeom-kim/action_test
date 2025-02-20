@@ -1,0 +1,79 @@
+name: Test 
+
+on:
+  push:
+
+
+jobs:
+  dummy-output:
+    runs-on: ubuntu-latest
+    outputs:
+      airflow_changes: ${{ steps.airflow-variable-changes.outputs.airflow_changes }}
+
+    steps:
+      - name: Checkout data-helm Repository
+        uses: actions/checkout@v2
+      - name: Output
+        id: airflow-variable-changes
+        run: |
+          result=$(jq -c . dummy_output.json)
+          echo $result
+          echo "airflow_changes=${result}" >> "$GITHUB_OUTPUT"
+
+  update-yaml-path:
+    runs-on: ubuntu-latest
+    needs: [dummy-output]
+    strategy:
+      max-parallel: 1
+      matrix:
+        variable_change: ${{ fromJSON(needs.dummy-output.outputs.airflow_changes) }}
+    concurrency:
+      group: update-helm-values-mutex
+    steps:
+      - name: Checkout data-helm Repository
+        uses: actions/checkout@v2
+        with:
+          repository: taekyeom-kim/values_test
+          path: values_test
+      - name: Check Key Existance
+        id: load-variable-key
+        run: |
+          query_result=$(yq '.airflow.airflow.variables[] | select (.key == "${{ matrix.variable_change.key }}")' values_test/values/temp.yaml | wc -l)
+          echo $query_result
+          echo "query-result=$query_result" >> "$GITHUB_OUTPUT"
+
+      - name: IF Exists
+        if: ${{ steps.load-variable-key.outputs.query-result != '0' }}
+        uses: fjogeleit/yaml-update-action@v0.16.0
+        with:
+          repository: taekyeom-kim/values_test
+          valueFile: "values/temp.yaml"
+          branch: main
+          createPR: false
+          workDir: values_test
+          token: ${{ secrets.TEST_GH_TOKEN }}
+          message: "auto: set variable ${{ matrix.variable_change.key }}"
+          changes: |
+            {
+              "values/temp.yaml": {
+                "airflow.airflow.variables[?(@.key == '${{ matrix.variable_change.key }}')].value": "${{ matrix.variable_change.value }}"
+              }
+            }
+
+      - name: IF Not Exists
+        if: ${{ steps.load-variable-key.outputs.query-result == '0' }}
+        uses: fjogeleit/yaml-update-action@v0.16.0
+        with:
+          repository: taekyeom-kim/values_test
+          valueFile: "values/temp.yaml"
+          branch: main
+          createPR: false
+          workDir: values_test
+          message: "auto: set variable ${{ matrix.variable_change.key }}"
+          token: ${{ secrets.TEST_GH_TOKEN }}
+          changes: |
+            {
+              "values/temp.yaml": {
+                "airflow.airflow.variables[(@.length)]": {"key": "${{ matrix.variable_change.key }}", "value": "${{ matrix.variable_change.value }}"}
+              }
+            }

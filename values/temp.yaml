@@ -1,0 +1,11 @@
+airflow:
+  airflow:
+    variables:
+      - key: key1
+        value: changed!!
+      - key: key2
+        value: test2
+      - key: key-does-not-exists-2
+        value: test-vallue-2
+      - key: key-does-not-exists
+        value: test-vallue
